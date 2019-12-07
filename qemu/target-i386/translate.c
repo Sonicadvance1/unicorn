@@ -4921,8 +4921,8 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         case 0xc2:
             /* compare insns */
             val = cpu_ldub_code(env, s->pc++);
-            if (val >= 8)
-                goto illegal_op;
+		/* 8-bit value only uses bits [2:0] */
+		val &= 7;
             sse_fn_epp = sse_op_table4[val][b1];
 
             tcg_gen_addi_ptr(tcg_ctx, cpu_ptr0, cpu_env, op1_offset);
@@ -7267,23 +7267,33 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
             gen_eob(s);
         }
         break;
-    case 0x9e: /* sahf */
+    case 0x9e: { /* sahf */
         if (CODE64(s) && !(s->cpuid_ext3_features & CPUID_EXT3_LAHF_LM))
             goto illegal_op;
+
+        int bak = tcg_ctx->x86_64_hregs;
+	  tcg_ctx->x86_64_hregs = 0;
         gen_op_mov_v_reg(tcg_ctx, MO_8, *cpu_T[0], R_AH);
+	  tcg_ctx->x86_64_hregs = bak;
+
         gen_compute_eflags(s);
         tcg_gen_andi_tl(tcg_ctx, cpu_cc_src, cpu_cc_src, CC_O);
         tcg_gen_andi_tl(tcg_ctx, *cpu_T[0], *cpu_T[0], CC_S | CC_Z | CC_A | CC_P | CC_C);
         tcg_gen_or_tl(tcg_ctx, cpu_cc_src, cpu_cc_src, *cpu_T[0]);
         break;
-    case 0x9f: /* lahf */
+	}
+    case 0x9f: { /* lahf */
         if (CODE64(s) && !(s->cpuid_ext3_features & CPUID_EXT3_LAHF_LM))
             goto illegal_op;
         gen_compute_eflags(s);
         /* Note: gen_compute_eflags() only gives the condition codes */
         tcg_gen_ori_tl(tcg_ctx, *cpu_T[0], cpu_cc_src, 0x02);
+        int bak = tcg_ctx->x86_64_hregs;
+	  tcg_ctx->x86_64_hregs = 0;
         gen_op_mov_reg_v(tcg_ctx, MO_8, R_AH, *cpu_T[0]);
+	  tcg_ctx->x86_64_hregs = bak;
         break;
+		   }
     case 0xf5: /* cmc */
         gen_compute_eflags(s);
         tcg_gen_xori_tl(tcg_ctx, cpu_cc_src, cpu_cc_src, CC_C);
